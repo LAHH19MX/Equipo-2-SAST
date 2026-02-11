@@ -294,7 +294,7 @@ _[Este apartado será completado por otro miembro del equipo]_
 | Nombre         | Responsabilidad          |
 | -------------- | ------------------------ |
 | Angel Uriel    | Análisis de Dependencias |
-| **Luis Angel** | Configuración Segura     |
+| Luis Angel | Configuración Segura     |
 | Marcos Uriel   | Protección de Datos      |
 | Delfino        | Detección de XSS         |
 
