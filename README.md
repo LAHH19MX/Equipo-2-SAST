@@ -66,25 +66,73 @@ Usuario: admin
 Contraseña: admin (cambiar en primer acceso)
 ```
 
-3. **Crear proyecto**:
+3. **Crear proyecto manualmente**:
 
+- Click en "Create Project" → "Manually"
 - Project Key: `Juice-Shop`
 - Display Name: `Juice Shop`
+- Click "Next"
 
-4. **Generar token de análisis**:
+4. **Configurar New Code**:
 
-- Ir a: Project → Analysis Method → Locally
-- Generar token y copiar
+- Seleccionar: "Follows the instance's default"
+- Click "Create project"
+
+5. **Seleccionar método de análisis**:
+
+- Click en "Locally" (Analysis Method)
+
+6. **Generar token de análisis**:
+
+- Token name: `juice-shop-token`
+- Expires in: 30 days
+- Click "Generate"
+- Copiar el token generado
+
+##### Instalación del SonarScanner CLI
+
+1. **Descargar SonarScanner**:
+   - Ir a: https://docs.sonarsource.com/sonarqube/latest/analyzing-source-code/scanners/sonarscanner/
+   - Descargar SonarScanner CLI para Windows
+   - Extraer el ZIP a una ubicación, ejemplo: `C:\Users\Public\Material\`
+
+2. **Verificar estructura de carpetas**:
+
+```powershell
+dir "C:\Users\Public\Material\sonar-scanner-cli-*\bin"
+```
+
+3. **Agregar al PATH (temporal)**:
+
+```powershell
+$env:PATH += ";C:\Users\Public\Material\sonar-scanner-8.0.1.6346-windows-x64\bin"
+```
+
+4. **Verificar instalación**:
+
+```powershell
+sonar-scanner --version
+```
+
+##### Configuración del Análisis
+
+Después de generar el token, en la página de SonarQube:
+
+- Run analysis on your project:
+  - Seleccionar: "Other (for Go, PHP, ...)"
+  - Seleccionar OS: "Windows"
 
 ##### Ejecución del Análisis
 
-```bash
+```powershell
 # Navegar al directorio del proyecto
-cd juice-shop-master
+cd "C:\ruta\a\juice-shop-master"
 
 # Ejecutar análisis
 sonar-scanner.bat -D"sonar.projectKey=Juice-Shop" -D"sonar.sources=." -D"sonar.host.url=http://localhost:9000" -D"sonar.token=YOUR_TOKEN_HERE"
 ```
+
+Tiempo estimado: 5-7 minutos
 
 ### Checkov
 
@@ -106,7 +154,129 @@ Haz clic en cada tipo de análisis para ver los detalles:
 
 ## Análisis de Dependencias
 
-_[Este apartado será completado por otro miembro del equipo]_
+El análisis de dependencias es una técnica de SAST enfocada en la **"Cadena de Suministro"**. Su objetivo es asegurar que las librerías de terceros no introduzcan vulnerabilidades en nuestro software.
+
+---
+
+## 📋 Paso 1: Preparación del Entorno
+
+Antes de auditar, debemos garantizar que el entorno sea consistente.
+
+| Comando       | Función Técnica                                                 | Propósito de Seguridad (¿Por qué?)                                                                                                                                                                |
+| ------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm install` | Descarga las librerías y genera el archivo `package-lock.json`. | **Evitar el "Dependency Drift"**: Sin un candado (lock), cada desarrollador podría tener versiones distintas. El candado asegura que analicemos exactamente el mismo código que irá a producción. |
+
+---
+
+## 🔍 Paso 2: Identificación de Riesgos
+
+Una vez estabilizado el entorno, procedemos a la detección de fallos.
+
+### Comando: `npm audit`
+
+**¿Para qué sirve?** Cruza nuestra lista de librerías locales con la base de datos de GitHub Advisory, identificando fallos conocidos (CVEs).
+
+**Resultado del Análisis:** Encontramos **48 vulnerabilidades**, resaltando **7 críticas** que ponen en riesgo la integridad del e-commerce.
+
+---
+
+## ⚖️ Paso 3: Análisis y Selección de Mitigación
+
+No todos los fallos se arreglan igual. Aquí es donde el analista toma decisiones.
+
+### El problema del comando `npm audit fix`
+
+Aunque es automático, el reporte nos advierte que muchas correcciones son **"Breaking Changes"**.
+
+### ¿Por qué no usar `--force`?
+
+En una aplicación real (como un sistema de pagos), forzar una actualización podría romper la funcionalidad del sitio. Por ello, optamos por la **Remediación Manual Controlada**.
+
+---
+
+## 🔧 Paso 4: Ejecución de Parches Críticos
+
+Seleccionamos las **3 vulnerabilidades más peligrosas** para neutralizarlas manualmente.
+
+### A. Criptografía Obsoleta (`crypto-js`)
+
+**Comando:**
+
+```bash
+npm install pdfkit@0.17.2
+```
+
+**¿Por qué este comando?** El fallo crítico de `crypto-js` (algoritmo PBKDF2 1.3 millones de veces más débil que el estándar) viene "escondido" dentro de la librería `pdfkit`.
+
+**¿Para qué?** Al actualizar el paquete raíz (`pdfkit`), forzamos la instalación de una versión segura de la librería criptográfica.
+
+---
+
+### B. Inyección de Objetos (`lodash`)
+
+**Comando:**
+
+```bash
+npm install sanitize-html@2.17.0
+```
+
+**¿Por qué este comando?** `lodash` presenta **Prototype Pollution**, lo que permite a un atacante inyectar propiedades en el código y escalar privilegios.
+
+**¿Para qué?** Protegemos la lógica del servidor contra manipulaciones maliciosas de objetos JavaScript.
+
+---
+
+### C. Ejecución de Código Remoto (`vm2`)
+
+**Comando:**
+
+```bash
+npm install juicy-chat-bot@0.6.4
+```
+
+**¿Por qué este comando?** `vm2` tiene un **escape de Sandbox crítico**.
+
+**¿Para qué?** Evitamos que un atacante pueda ejecutar comandos directamente en el sistema operativo del servidor.
+
+---
+
+## ✅ Paso 5: Verificación Final
+
+**Comando:**
+
+```bash
+npm audit
+```
+
+**¿Por qué se repite?** En seguridad, confiar no es suficiente, hay que **verificar**.
+
+**Propósito:** Confirmar que las líneas de código (como la 215 y 217 del `package.json`) ahora reflejan versiones seguras y que el contador de vulnerabilidades críticas ha disminuido de **7 a 4**.
+
+---
+
+## 📝 Resumen del Valor Agregado
+
+Este proceso demuestra que un analista de seguridad no solo corre herramientas, sino que **comprende la jerarquía de dependencias** y equilibra la seguridad con la disponibilidad del sistema, evitando parches automáticos que podrían causar caídas del servicio.
+
+---
+
+## 📊 Métricas del Análisis
+
+| Métrica                   | Valor Inicial | Valor Final | Mejora                   |
+| ------------------------- | ------------- | ----------- | ------------------------ |
+| Vulnerabilidades Totales  | 48            | ➡️          | Reducción progresiva     |
+| Vulnerabilidades Críticas | 7             | 4           | ✅ 43% de reducción      |
+| Breaking Changes Evitados | N/A           | 100%        | ✅ Estabilidad mantenida |
+
+---
+
+## 🔐 Buenas Prácticas Aplicadas
+
+- ✅ **Reproducibilidad**: Uso de `package-lock.json` para entornos consistentes
+- ✅ **Análisis de Impacto**: Evaluación de breaking changes antes de aplicar parches
+- ✅ **Remediación Quirúrgica**: Actualización selectiva vs. actualización masiva
+- ✅ **Verificación Continua**: Re-auditoría post-mitigación
+- ✅ **Documentación**: Justificación técnica de cada decisión
 
 ---
 
@@ -270,13 +440,472 @@ function makeRandomString(length: number) {
 
 ## Protección de Datos
 
-_[Este apartado será completado por otro miembro del equipo]_
+# Práctica de Protección de Datos con Checkov
+
+## 📋 Objetivo
+
+Demostrar el cumplimiento de protección de datos mediante el análisis de vulnerabilidades en Juice Shop utilizando la herramienta Checkov.
+
+---
+
+## 🔍 1. Escaneo de Vulnerabilidades
+
+### Agregamos al path la carpeta donde se encuentra el instalador de CHECKOV
+
+C:\Users\uriel\Downloads\Checkov\checkov_windows_X86_64\dist\_ ------------ Ejemplo
+
+### Comando Ejecutado en la posicion de JUICE-SHOP
+
+```bash
+checkov -d .\data --framework secrets
+```
+
+### Resultado del Escaneo
+
+```
+secrets scan results:
+
+Passed checks: 0, Failed checks: 4, Skipped checks: 0
+```
+
+### Vulnerabilidades Encontradas
+
+| #   | Archivo                  | Línea   | Vulnerabilidad          | Severidad |
+| --- | ------------------------ | ------- | ----------------------- | --------- |
+| 1   | `/data/static/users.yml` | 88-89   | Password en Base64      | HIGH      |
+| 2   | `/data/static/users.yml` | 150-151 | TOTP Secret expuesto    | HIGH      |
+| 3   | `/data/static/users.yml` | 204-205 | Password en texto plano | HIGH      |
+| 4   | `/data/static/users.yml` | 270-271 | Password hardcodeado    | HIGH      |
+
+**Problema Identificado:** Contraseñas y secretos hardcodeados directamente en el código fuente, violando principios de protección de datos.
+
+---
+
+## 🔧 2. Solución Implementada
+
+### Paso 1: Crear archivo `.env`
+
+Creamos un archivo para almacenar los secretos de forma segura:
+
+```env
+# SECRETOS - NO COMPARTIR
+USER_PASSWORD_BJOERN=bW9jLmxpYW1nQGhjaW5pbW1pay5ucmVvamI=
+USER_TOTP_WURSTBROT=IFTXE3SPOEYVURT2MRYGI52TKJ4HC3KH
+USER_PASSWORD_UVOGIN=muda-muda > ora-ora
+USER_PASSWORD_TESTING=IamUsedForTesting
+```
+
+### Paso 2: Modificar `users.yml`
+
+**ANTES (Vulnerable):**
+
+```yaml
+# Línea 88
+password: 'bW9jLmxpYW1nQGhjaW5pbW1pay5ucmVvamI='
+
+# Línea 150
+totpSecret: IFTXE3SPOEYVURT2MRYGI52TKJ4HC3KH
+
+# Línea 204
+password: 'muda-muda > ora-ora'
+
+# Línea 270
+password: 'IamUsedForTesting'
+```
+
+**DESPUÉS (Seguro):**
+
+```yaml
+# Línea 88
+password: ${USER_PASSWORD_BJOERN}
+
+# Línea 150
+totpSecret: ${USER_TOTP_WURSTBROT}
+
+# Línea 204
+password: ${USER_PASSWORD_UVOGIN}
+
+# Línea 270
+password: ${USER_PASSWORD_TESTING}
+```
+
+### Paso 3: Agregar `.env` al `.gitignore`
+
+```gitignore
+# Secretos - NO subir a repositorios
+.env
+*.env.local
+```
+
+---
+
+## ✅ 3. Verificación de la Corrección
+
+### Comando de Verificación
+
+```bash
+checkov -d .\data --framework secrets
+```
+
+### Resultado Final
+
+```
+[ secrets framework ]: 100%|████████████████████|[95/95]
+
+✅ Escaneo completado sin vulnerabilidades detectadas
+```
+
+**Interpretación:**
+
+- ✅ 0 vulnerabilidades encontradas
+- ✅ Los secretos están protegidos en variables de entorno
+- ✅ Cumplimiento con protección de datos verificado
+
+---
+
+## 📊 Resumen de la Práctica
+
+| Fase                 | Estado                                   |
+| -------------------- | ---------------------------------------- |
+| **Análisis Inicial** | 4 vulnerabilidades críticas detectadas   |
+| **Implementación**   | Secretos externalizados a archivo `.env` |
+| **Verificación**     | 0 vulnerabilidades - ✅ APROBADO         |
+
+---
+
+## 🎯 Conclusión
+
+Se demostró exitosamente el cumplimiento de protección de datos mediante:
+
+1. **Identificación** de vulnerabilidades con Checkov
+2. **Remediación** mediante externalización de secretos
+3. **Verificación** del cumplimiento con nuevo escaneo
+
+**Resultado:** Sistema seguro que cumple con principios de confidencialidad y protección de datos sensibles.
 
 ---
 
 ## Detección de XSS
 
-_[Este apartado será completado por otro miembro del equipo]_
+### 📈 Resultados del Análisis
+
+**Escaneo Inicial:**
+
+- **Vulnerabilidades XSS detectadas**: [Número de casos detectados]
+- **Severidad**: 🔴 Alta
+- **Archivos afectados**: 3 componentes críticos
+
+### Vulnerabilidades Identificadas y Corregidas
+
+#### 1. **XSS en Galería de Comentarios (about.component.ts)**
+
+**Severidad**: 🔴 Alta
+
+**Descripción**: El componente de "About" inyectaba directamente comentarios de usuarios en el HTML sin sanitización previa, permitiendo la ejecución de scripts maliciosos mediante `bypassSecurityTrustHtml()`.
+
+**Archivo afectado**: `frontend/src/app/about/about.component.ts`
+
+**Código Vulnerable**:
+
+```typescript
+.subscribe((feedbacks) => {
+  for (let i = 0; i < feedbacks.length; i++) {
+    // ❌ PELIGRO: Inyección directa de contenido del usuario
+    feedbacks[i].comment = `<figcaption><p style="margin-bottom: 0;">${
+      feedbacks[i].comment
+    }</p><div class="feedback-stars">(${this.stars[feedbacks[i].rating]})</div></figcaption>`
+
+    feedbacks[i].comment = this.sanitizer.bypassSecurityTrustHtml(
+      feedbacks[i].comment
+    )
+
+    this.galleryRef.addImage({
+      src: this.images[i % this.images.length],
+      args: feedbacks[i].comment
+    })
+  }
+})
+```
+
+**Corrección Implementada**:
+
+```typescript
+import { SecurityContext } from '@angular/core'
+
+.subscribe((feedbacks) => {
+  for (let i = 0; i < feedbacks.length; i++) {
+    // ✅ PASO 1: SANITIZAR el comentario del usuario (ELIMINA <script>, etc.)
+    const sanitizedComment = this.sanitizer.sanitize(
+      SecurityContext.HTML,
+      feedbacks[i].comment
+    ) || ''
+
+    // ✅ PASO 2: Construir HTML con el comentario YA LIMPIO
+    const safeHtml = `<figcaption>
+        <p style="margin-bottom: 0;">${sanitizedComment}</p>
+        <div class="feedback-stars">(${this.stars[feedbacks[i].rating]})</div>
+      </figcaption>`
+
+    // ✅ PASO 3: AHORA SÍ es seguro el bypass (todo el HTML es controlado por NOSOTROS)
+    feedbacks[i].comment = this.sanitizer.bypassSecurityTrustHtml(safeHtml)
+
+    this.galleryRef.addImage({
+      src: this.images[i % this.images.length],
+      args: feedbacks[i].comment
+    })
+  }
+})
+```
+
+**Impacto**:
+
+- ✅ Prevención de ejecución de scripts maliciosos en comentarios
+- ✅ Eliminación automática de tags peligrosos (`<script>`, `<iframe>`, etc.)
+- ✅ Protección contra robo de cookies y sesiones
+- ✅ Prevención de desfiguración del sitio (defacement)
+
+---
+
+#### 2. **XSS en Panel de Administración - Emails (administration.component.ts)**
+
+**Severidad**: 🔴 Alta
+
+**Descripción**: El panel de administración mostraba emails de usuarios directamente en el HTML sin sanitización, permitiendo que emails maliciosos ejecutaran código JavaScript.
+
+**Archivo afectado**: `frontend/src/app/administration/administration.component.ts`
+
+**Código Vulnerable**:
+
+```typescript
+findAllUsers () {
+  this.userService.find().subscribe({
+    next: (users) => {
+      this.userDataSource = users
+      this.userDataSourceHidden = users
+      for (const user of this.userDataSource) {
+        // ❌ PELIGRO: Email del usuario inyectado sin sanitizar
+        user.email = this.sanitizer.bypassSecurityTrustHtml(
+          `<span class="${this.doesUserHaveAnActiveSession(user) ? 'confirmation' : 'error'}">${user.email}</span>`
+        )
+      }
+      this.userDataSource = new MatTableDataSource(this.userDataSource)
+      this.userDataSource.paginator = this.paginatorUsers
+      this.resultsLengthUser = users.length
+    },
+    error: (err) => {
+      this.error = err
+      console.log(this.error)
+    }
+  })
+}
+```
+
+**Corrección Implementada**:
+
+```typescript
+import { SecurityContext } from '@angular/core'
+
+findAllUsers () {
+  this.userService.find().subscribe({
+    next: (users) => {
+      this.userDataSource = users
+      this.userDataSourceHidden = users
+      for (const user of this.userDataSource) {
+        // ✅ PASO 1: Sanitizar el EMAIL del usuario (viene del atacante)
+        const safeEmail = this.sanitizer.sanitize(
+          SecurityContext.HTML,
+          user.email
+        ) || ''
+
+        // ✅ PASO 2: Construir el SPAN con el email YA LIMPIO
+        const safeHtml = `<span class="${this.doesUserHaveAnActiveSession(user) ? 'confirmation' : 'error'}">${safeEmail}</span>`
+
+        // ✅ PASO 3: AHORA SÍ es seguro usar bypass (solo HTML controlado)
+        user.email = this.sanitizer.bypassSecurityTrustHtml(safeHtml)
+      }
+
+      this.userDataSource = new MatTableDataSource(this.userDataSource)
+      this.userDataSource.paginator = this.paginatorUsers
+      this.resultsLengthUser = users.length
+    },
+    error: (err) => {
+      this.error = err
+      console.log(this.error)
+    }
+  })
+}
+```
+
+**Impacto**:
+
+- ✅ Protección del panel de administración contra XSS
+- ✅ Prevención de compromiso de cuentas administrativas
+- ✅ Eliminación de vectores de ataque a usuarios privilegiados
+- ✅ Sanitización de datos en contextos de alta criticidad
+
+---
+
+#### 3. **XSS en Panel de Administración - Feedbacks (administration.component.ts)**
+
+**Severidad**: 🔴 Alta
+
+**Descripción**: La tabla de feedbacks en el panel administrativo mostraba comentarios sin sanitización, permitiendo ataques XSS dirigidos a administradores.
+
+**Archivo afectado**: `frontend/src/app/administration/administration.component.ts`
+
+**Código Vulnerable**:
+
+```typescript
+findAllFeedbacks () {
+  this.feedbackService.find().subscribe({
+    next: (feedbacks) => {
+      this.feedbackDataSource = feedbacks
+      for (const feedback of this.feedbackDataSource) {
+        // ❌ PELIGRO: Bypass sin sanitización
+        feedback.comment = this.sanitizer.bypassSecurityTrustHtml(feedback.comment)
+      }
+      this.feedbackDataSource = new MatTableDataSource(this.feedbackDataSource)
+      this.feedbackDataSource.paginator = this.paginatorFeedb
+      this.resultsLengthFeedback = feedbacks.length
+    },
+    error: (err) => {
+      this.error = err
+      console.log(this.error)
+    }
+  })
+}
+```
+
+**Corrección Implementada**:
+
+```typescript
+findAllFeedbacks () {
+  this.feedbackService.find().subscribe({
+    next: (feedbacks) => {
+      this.feedbackDataSource = feedbacks
+      for (const feedback of this.feedbackDataSource) {
+        // ✅ PASO 1: Sanitizar el COMENTARIO del usuario
+        const safeComment = this.sanitizer.sanitize(
+          SecurityContext.HTML,
+          feedback.comment
+        ) || ''
+
+        // ✅ PASO 2: Usar bypass con el comentario YA LIMPIO
+        feedback.comment = this.sanitizer.bypassSecurityTrustHtml(safeComment)
+      }
+
+      this.feedbackDataSource = new MatTableDataSource(this.feedbackDataSource)
+      this.feedbackDataSource.paginator = this.paginatorFeedb
+      this.resultsLengthFeedback = feedbacks.length
+    },
+    error: (err) => {
+      this.error = err
+      console.log(this.error)
+    }
+  })
+}
+```
+
+**Impacto**:
+
+- ✅ Protección contra XSS almacenado (Stored XSS)
+- ✅ Prevención de escalación de privilegios vía panel admin
+- ✅ Seguridad en revisión de contenido generado por usuarios
+- ✅ Defensa en profundidad para datos persistentes
+
+---
+
+### Análisis Técnico de la Vulnerabilidad
+
+**Patrón Común Detectado**:
+Los tres casos compartían el mismo antipatrón de seguridad:
+
+1. Recibir datos del usuario (no confiables)
+2. Inyectarlos directamente en templates HTML
+3. Usar `bypassSecurityTrustHtml()` sin sanitización previa
+
+**¿Por qué es peligroso?**
+
+```typescript
+// Usuario malicioso envía:
+comment: '<img src=x onerror="alert(document.cookie)">';
+
+// Sin sanitización → Se ejecuta el script
+// Con sanitización → Se convierte en texto plano
+```
+
+**Principio de Seguridad Aplicado**:
+
+```
+NUNCA confiar en datos del usuario
+    ↓
+SIEMPRE sanitizar ANTES de usar bypassSecurityTrustHtml()
+    ↓
+SOLO hacer bypass de HTML que TÚ controlas
+```
+
+---
+
+### Resultados Post-Corrección
+
+**Escaneo Final:**
+
+- **Vulnerabilidades XSS corregidas**: 3 casos críticos
+- **Método de corrección**: Sanitización con `SecurityContext.HTML`
+- **Componentes seguros**: ✅ about.component.ts, ✅ administration.component.ts
+- **Patrón de seguridad**: Implementado en todas las visualizaciones de contenido de usuario
+
+---
+
+### Buenas Prácticas Implementadas
+
+**1. Sanitización en Dos Pasos**:
+
+```typescript
+// ✅ CORRECTO
+const clean = this.sanitizer.sanitize(SecurityContext.HTML, userInput) || "";
+const safe = `<div>${clean}</div>`;
+this.sanitizer.bypassSecurityTrustHtml(safe);
+
+// ❌ INCORRECTO
+this.sanitizer.bypassSecurityTrustHtml(`<div>${userInput}</div>`);
+```
+
+**2. Uso de SecurityContext**:
+
+- `SecurityContext.HTML`: Limpia tags peligrosos
+- `SecurityContext.SCRIPT`: Previene ejecución de JavaScript
+- `SecurityContext.URL`: Valida URLs
+- `SecurityContext.STYLE`: Sanitiza CSS inline
+
+**3. Defensa en Profundidad**:
+
+- Sanitización en frontend (Angular)
+- Validación en backend (próximo paso recomendado)
+- Content Security Policy (CSP) en headers
+
+---
+
+### Lecciones Aprendidas
+
+**Nunca usar `bypassSecurityTrustHtml()` directamente con entrada de usuario**:
+
+- Angular deshabilita su sanitizador automático cuando usas `bypassSecurityTrustHtml()`
+- Esto es por diseño: el desarrollador dice "confío en este HTML"
+- Si ese HTML viene del usuario → XSS garantizado
+
+**Orden correcto de operaciones**:
+
+1. Sanitizar datos externos con `sanitize()`
+2. Construir estructura HTML con datos limpios
+3. Solo entonces usar `bypassSecurityTrustHtml()` si es necesario
+
+**Contextos de alto riesgo**:
+
+- Comentarios y feedback de usuarios
+- Emails y datos de perfil
+- Cualquier campo de texto libre
+- Paneles administrativos (objetivo de alto valor)
 
 ---
 
@@ -294,14 +923,8 @@ _[Este apartado será completado por otro miembro del equipo]_
 | Nombre         | Responsabilidad          |
 | -------------- | ------------------------ |
 | Angel Uriel    | Análisis de Dependencias |
-| Luis Angel | Configuración Segura     |
+| **Luis Angel** | Configuración Segura     |
 | Marcos Uriel   | Protección de Datos      |
-| Delfino        | Detección de XSS         |
+| **Delfino**    | Detección de XSS         |
 
 ---
-
----
-
-**Fecha de análisis**: 11 de Febrero, 2026  
-**Herramienta principal**: SonarQube Community Build 26.2.0.119303  
-**Scanner**: SonarScanner CLI 8.0.1.6346
