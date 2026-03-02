@@ -292,127 +292,117 @@ Este proceso demuestra que un analista de seguridad no solo corre herramientas, 
 
 ### Vulnerabilidades Identificadas y Corregidas
 
-#### 1. **Falta de Headers de Seguridad**
+#### 1. **CORS Permisivo**
 
 **Severidad**: 🔴 Alta
 
-**Descripción**: La aplicación no implementaba headers HTTP de seguridad, dejándola vulnerable a ataques de clickjacking, MIME type sniffing, y otros vectores de ataque comunes.
+**Descripción**: La aplicación permite que CUALQUIER sitio web haga peticiones a la API sin restricciones. Un atacante podría crear un sitio malicioso que roba datos de los usuarios o realiza acciones en su nombre.
 
-**Archivo afectado**: `server.ts` / `app.ts`
+**Archivo afectado**: `server.ts` (líneas ~195-197)
 
 **Código Vulnerable**:
 
 ```typescript
-// Sin headers de seguridad
+/* Bludgeon solution for possible CORS problems: Allow everything! */
+app.options("*", cors());
 app.use(cors());
-app.use(bodyParser.json());
 ```
 
 **Corrección Implementada**:
 
 ```typescript
-import helmet from "helmet";
+/* CORS configurado con orígenes permitidos específicos */
+const corsOptions = {
+  origin: ["http://localhost:3000", "http://localhost:4200"],
+  credentials: true,
+  optionsSuccessStatus: 200,
+};
 
-// Implementación de headers de seguridad
-app.use(
-  helmet({
-    contentSecurityPolicy: false, // Deshabilitado para propósitos educativos
-    frameguard: { action: "deny" },
-  }),
-);
+app.options("*", cors(corsOptions));
+app.use(cors(corsOptions));
 ```
+
+**Nota**: En producción, se usarían dominios reales como `'https://juice-shop.com'` en lugar de localhost.
 
 **Impacto**:
 
-- ✅ Protección contra clickjacking mediante `X-Frame-Options`
-- ✅ Prevención de MIME type sniffing con `X-Content-Type-Options`
-- ✅ Implementación de `X-XSS-Protection`
-- ✅ Headers adicionales de seguridad modernos
+- ✅ Prevención de Cross-Site Request Forgery (CSRF)
+- ✅ Control de orígenes autorizados para hacer peticiones
+- ✅ Protección contra robo de datos entre sitios
+- ✅ Lista blanca de dominios en lugar de permitir todo
 
 ---
 
-#### 2. **Credenciales Hardcodeadas en Código**
+#### 2. **Error Handler muestra información sensible en producción**
 
 **Severidad**: 🔴 Alta
 
-**Descripción**: El código de pruebas contenía contraseñas hardcodeadas directamente en el código fuente, lo cual representa un riesgo significativo si el repositorio es expuesto públicamente.
+**Descripción**: Cuando ocurría un error, la aplicación mostraba información técnica completa: rutas de archivos del servidor, líneas de código, librerías usadas. Esta información ayuda a atacantes a mapear la estructura interna y encontrar vulnerabilidades.
 
-**Archivo afectado**: `src/app/Services`
+**Archivo afectado**: `server.ts` (líneas ~680-681)
 
 **Código Vulnerable**:
 
 ```typescript
-service
-  .setup("s3cr3t!", "initialToken", "setupToken")
-  .subscribe((data) => (res = data));
-service.disable("s3cr3t!").subscribe((data) => (res = data));
+/* Error Handling */
+app.use(verify.errorHandlingChallenge());
+app.use(errorhandler());
 ```
 
 **Corrección Implementada**:
 
 ```typescript
-const testPassword = process.env.TEST_PASSWORD || "defaultTestPass";
-service
-  .setup(testPassword, "initialToken", "setupToken")
-  .subscribe((data) => (res = data));
-service.disable(testPassword).subscribe((data) => (res = data));
+/* Error Handling */
+app.use(verify.errorHandlingChallenge());
+// app.use(errorhandler())  // ❌ Deshabilitado
+
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error(err); // Solo loguea internamente
+  res.status(500).json({ error: "Internal Server Error" }); // Mensaje genérico
+});
 ```
 
 **Impacto**:
 
-- ✅ Eliminación de credenciales del código fuente
-- ✅ Uso de variables de entorno para datos sensibles
-- ✅ Facilita rotación de credenciales sin modificar código
-- ✅ Previene exposición en repositorios públicos
+- ✅ Prevención de Information Disclosure (revelación de información)
+- ✅ Errores técnicos solo visibles en logs internos
+- ✅ Usuarios externos solo ven mensajes genéricos
+- ✅ Dificulta reconocimiento de estructura del servidor
 
 ---
 
-#### 3. **Generador de Números Aleatorios Criptográficamente Débil**
+#### 3. **Error Handler en archivo JavaScript (segunda instancia)**
 
 **Severidad**: 🔴 Alta
 
-**Descripción**: La función de generación de contraseñas aleatorias utilizaba `Math.random()`, que no es criptográficamente seguro y puede ser predecible, permitiendo a atacantes adivinar contraseñas generadas.
+**Descripción**: El mismo problema del `errorhandler()` detectado en el archivo compilado de JavaScript. Revela información técnica que facilita ataques.
 
-**Archivo afectado**: `data/datacreator.ts`
+**Archivo afectado**: `build/server.js`
 
 **Código Vulnerable**:
 
-```typescript
-function makeRandomString(length: number) {
-  let text = "";
-  const possible =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-  for (let i = 0; i < length; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length)); // ❌ No seguro
-  }
-  return text;
-}
+```javascript
+app.use(errorhandler());
 ```
 
 **Corrección Implementada**:
 
-```typescript
-import crypto from "crypto";
+```javascript
+// app.use(errorhandler())  // ❌ Deshabilitado
 
-function makeRandomString(length: number) {
-  let text = "";
-  const possible =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-  for (let i = 0; i < length; i++) {
-    text += possible.charAt(crypto.randomInt(0, possible.length)); // ✅ Seguro
-  }
-  return text;
-}
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: "Internal Server Error" });
+});
 ```
+
+**Nota**: Este archivo requiere sintaxis JavaScript sin anotaciones de tipo.
 
 **Impacto**:
 
-- ✅ Generación de contraseñas criptográficamente seguras
-- ✅ Eliminación de predictibilidad en tokens y sesiones
-- ✅ Cumplimiento con estándares de seguridad (OWASP)
-- ✅ Protección contra ataques de fuerza bruta predictivos
+- ✅ Mismos beneficios que la corrección anterior
+- ✅ Consistencia en manejo de errores en toda la aplicación
+- ✅ Protección en código compilado y fuente
 
 ---
 
@@ -428,13 +418,13 @@ function makeRandomString(length: number) {
 
 ### Análisis Técnico Adicional
 
-**Criterio de Selección**: Durante el análisis, SonarQube detectó múltiples usos de `Math.random()` en el código. Se aplicó criterio técnico para identificar que únicamente el caso de generación de contraseñas representaba un riesgo de seguridad crítico, mientras que otros usos (generación de cantidades de inventario y precios) no afectaban la seguridad de la aplicación.
+**Criterio de Selección**: Durante el análisis, se priorizaron problemas de **configuración insegura** detectados por SonarQube. Se identificaron vulnerabilidades relacionadas con CORS permisivo y manejo de errores en producción, ambos problemas críticos de configuración que exponen información sensible y permiten ataques externos.
 
 **Lecciones Aprendidas**:
 
-- No todas las alertas de seguridad tienen el mismo nivel de criticidad
-- Es fundamental aplicar contexto y criterio técnico al analizar vulnerabilidades
-- Las herramientas SAST son guías, pero requieren validación humana
+- La configuración de CORS debe ser restrictiva por defecto
+- Los detalles de errores nunca deben exponerse a usuarios externos
+- Las herramientas SAST detectan problemas de configuración que pasan desapercibidos en revisiones manuales
 
 ---
 
@@ -920,11 +910,11 @@ this.sanitizer.bypassSecurityTrustHtml(`<div>${userInput}</div>`);
 
 ## 👥 Equipo
 
-| Nombre         | Responsabilidad          |
-| -------------- | ------------------------ |
-| Angel Uriel    | Análisis de Dependencias |
-| **Luis Angel** | Configuración Segura     |
-| Marcos Uriel   | Protección de Datos      |
-| **Delfino**    | Detección de XSS         |
+| Nombre           | Responsabilidad          |
+| ---------------- | ------------------------ |
+| **Angel Uriel**  | Análisis de Dependencias |
+| **Luis Angel**   | Configuración Segura     |
+| **Marcos Uriel** | Protección de Datos      |
+| **Delfino**      | Detección de XSS         |
 
 ---
